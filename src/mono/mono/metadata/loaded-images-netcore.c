@@ -27,8 +27,9 @@ MonoLoadedImages *
 mono_alc_get_loaded_images (MonoAssemblyLoadContext *alc)
 {
 	g_assert (alc);
-	g_assert (alc->loaded_images);
-	return alc->loaded_images;
+	g_assert (alc->loader_allocator);
+	g_assert (alc->loader_allocator->loaded_images);
+	return alc->loader_allocator->loaded_images;
 }
 
 #else

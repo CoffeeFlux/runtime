@@ -1380,7 +1380,7 @@ mono_reflection_dynimage_basic_init (MonoReflectionAssemblyBuilder *assemblyb, M
 #ifdef ENABLE_NETCORE
 	// TODO: potentially relax the locking here?
 	mono_alc_assemblies_lock (alc);
-	alc->loaded_assemblies = g_slist_append (alc->loaded_assemblies, assembly);
+	alc->loader_allocator->loaded_assemblies = g_slist_append (alc->loader_allocator->loaded_assemblies, assembly);
 	mono_alc_assemblies_unlock (alc);
 #endif
 	mono_domain_assemblies_unlock (domain);

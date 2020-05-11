@@ -239,8 +239,10 @@ HANDLES(TYPEB_1, "create_runtime_class", ves_icall_TypeBuilder_create_runtime_cl
 
 ICALL_TYPE(FIELDI, "System.Reflection.FieldInfo", FILEDI_1)
 HANDLES(FILEDI_1, "get_marshal_info", ves_icall_System_Reflection_FieldInfo_get_marshal_info, MonoReflectionMarshalAsAttribute, 1, (MonoReflectionField))
-
 HANDLES(FILEDI_2, "internal_from_handle_type", ves_icall_System_Reflection_FieldInfo_internal_from_handle_type, MonoReflectionField, 2, (MonoClassField_ref, MonoType_ref))
+
+ICALL_TYPE(LALLOC_SCOUT, "System.Reflection.LoaderAllocatorScout", LALLOC_SCOUT_1)
+HANDLES(LALLOC_SCOUT_1, "Destroy", ves_icall_System_Reflection_LoaderAllocatorScout_Destroy, MonoBoolean, 1, (gpointer))
 
 ICALL_TYPE(MBASE, "System.Reflection.MethodBase", MBASE_1)
 HANDLES(MBASE_1, "GetCurrentMethod", ves_icall_GetCurrentMethod, MonoReflectionMethod, 0, ())

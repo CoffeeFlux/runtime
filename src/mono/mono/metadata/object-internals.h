@@ -1669,6 +1669,20 @@ typedef struct {
 } MonoManagedAssemblyLoadContext;
 
 TYPED_HANDLE_DECL (MonoManagedAssemblyLoadContext);
+
+typedef struct {
+	MonoObject object;
+	MonoLoaderAllocator *native_loader_allocator;
+} MonoManagedLoaderAllocatorScout;
+
+TYPED_HANDLE_DECL (MonoManagedLoaderAllocatorScout);
+
+typedef struct {
+	MonoObject object;
+	MonoManagedLoaderAllocatorScout scout;
+} MonoManagedLoaderAllocator;
+
+TYPED_HANDLE_DECL (MonoManagedLoaderAllocator);
 #endif
 
 /* All MonoInternalThread instances should be pinned, so it's safe to use the raw ptr.  However

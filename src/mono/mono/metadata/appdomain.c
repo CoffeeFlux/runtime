@@ -1571,13 +1571,14 @@ static void
 add_assembly_to_alc (MonoAssemblyLoadContext *alc, MonoAssembly *ass)
 {
 	GSList *tmp;
+	MonoLoaderAllocator *loader_allocator = alc->loader_allocator;
 
 	g_assert (ass != NULL);
 
 	if (!ass->aname.name)
 		return;
 
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		if (tmp->data == ass) {
 			return;
 		}
@@ -1585,7 +1586,7 @@ add_assembly_to_alc (MonoAssemblyLoadContext *alc, MonoAssembly *ass)
 
 	mono_assembly_addref (ass);
 	// Prepending here will break the test suite with frequent InvalidCastExceptions, so we have to append
-	alc->loaded_assemblies = g_slist_append (alc->loaded_assemblies, ass);
+	loader_allocator->loaded_assemblies = g_slist_append (loader_allocator->loaded_assemblies, ass);
 	mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Assembly %s[%p] added to ALC (%p), ref_count=%d", ass->aname.name, ass, (gpointer)alc, ass->ref_count);
 
 }
@@ -2524,7 +2525,7 @@ mono_domain_assembly_search (MonoAssemblyLoadContext *alc, MonoAssembly *request
 	const MonoAssemblyNameEqFlags eq_flags = MONO_ANAME_EQ_IGNORE_PUBKEY | MONO_ANAME_EQ_IGNORE_VERSION | MONO_ANAME_EQ_IGNORE_CASE;
 
 	mono_alc_assemblies_lock (alc);
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = alc->loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		ass = (MonoAssembly *)tmp->data;
 		g_assert (ass != NULL);
 		// FIXME: Can dynamic assemblies match here for netcore?

@@ -15,6 +15,7 @@
 
 typedef struct _MonoLoadedImages MonoLoadedImages;
 typedef struct _MonoAssemblyLoadContext MonoAssemblyLoadContext;
+typedef struct _MonoLoaderAllocator MonoLoaderAllocator;
 
 #ifndef DISABLE_DLLMAP
 typedef struct _MonoDllMap MonoDllMap;
@@ -28,16 +29,13 @@ struct _MonoDllMap {
 #endif
 
 #ifdef ENABLE_NETCORE
-/* FIXME: this probably belongs somewhere else */
 struct _MonoAssemblyLoadContext {
 	MonoDomain *domain;
-	MonoLoadedImages *loaded_images;
-	GSList *loaded_assemblies;
-	// If taking this with the domain assemblies_lock, always take this second
-	MonoCoopMutex assemblies_lock;
-	/* Handle of the corresponding managed object.  If the ALC is
-	 * collectible, the handle is weak, otherwise it's strong.
-	 */
+	MonoLoaderAllocator *loader_allocator;
+	// Strong handle, destroyed at the end of unloading phase 1
+	MonoGCHandle loader_allocator_gchandle;
+	// Handle of the corresponding managed object.  If the ALC is
+	// collectible, the handle is weak, otherwise it's strong.
 	MonoGCHandle gchandle;
 	// Whether the ALC can be unloaded; should only be set at creation
 	gboolean collectible;
@@ -49,6 +47,21 @@ struct _MonoAssemblyLoadContext {
 	MonoCoopMutex pinvoke_lock;
 	// Maps malloc-ed char* pinvoke scope -> MonoDl*
 	GHashTable *pinvoke_scopes;
+};
+
+struct _MonoLoaderAllocator {
+	// Corresponding ALC
+	MonoAssemblyLoadContext *alc;
+	// Whether the LA can be unloaded; should only be set at creation
+	gboolean collectible;
+	// Atomic operations only
+	gint32 ref_count;
+	// Weak tracking handle
+	MonoGCHandle gchandle;
+	MonoLoadedImages *loaded_images;
+	GSList *loaded_assemblies;
+	// If taking this with the domain assemblies_lock, always take this second
+	MonoCoopMutex assemblies_lock;
 };
 #endif /* ENABLE_NETCORE */
 
@@ -106,6 +119,11 @@ mono_alc_invoke_resolve_using_resolve_satellite_nofail (MonoAssemblyLoadContext 
 MonoAssemblyLoadContext *
 mono_alc_from_gchandle (MonoGCHandle alc_gchandle);
 
+gint32
+mono_loader_allocator_addref (MonoLoaderAllocator *loader_allocator);
+
+gint32
+mono_loader_allocator_decref (MonoLoaderAllocator *loader_allocator);
 #endif /* ENABLE_NETCORE */
 
 static inline MonoDomain *

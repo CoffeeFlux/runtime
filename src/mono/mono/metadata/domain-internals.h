@@ -467,8 +467,9 @@ struct _MonoDomain {
 
 #ifdef ENABLE_NETCORE
 	GSList *alcs;
+	GSList *collectible_loader_allocators;
 	MonoAssemblyLoadContext *default_alc;
-	MonoCoopMutex alcs_lock; /* Used when accessing 'alcs' */
+	MonoCoopMutex alcs_lock; /* Used when accessing 'alcs' and 'collectible_loader_allocators' */
 #endif
 };
 
@@ -699,6 +700,9 @@ MonoAssemblyLoadContext *
 mono_domain_default_alc (MonoDomain *domain);
 
 #ifdef ENABLE_NETCORE
+void
+mono_domain_create_default_alc (MonoDomain *domain);
+
 MonoAssemblyLoadContext *
 mono_domain_create_individual_alc (MonoDomain *domain, MonoGCHandle this_gchandle, gboolean collectible, MonoError *error);
 #endif

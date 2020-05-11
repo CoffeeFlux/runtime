@@ -14,60 +14,145 @@
 #include "mono/utils/mono-logger-internals.h"
 
 GENERATE_GET_CLASS_WITH_CACHE (assembly_load_context, "System.Runtime.Loader", "AssemblyLoadContext");
+static GENERATE_GET_CLASS_WITH_CACHE (loader_allocator, "System.Reflection", "LoaderAllocator");
+static GENERATE_GET_CLASS_WITH_CACHE (loader_allocator_scout, "System.Reflection", "LoaderAllocatorScout");
+
+static void
+mono_alc_free (MonoAssemblyLoadContext *alc);
+
+static inline void
+mono_domain_alcs_lock (MonoDomain *domain)
+{
+	mono_coop_mutex_lock (&domain->alcs_lock);
+}
+
+static inline void
+mono_domain_alcs_unlock (MonoDomain *domain)
+{
+	mono_coop_mutex_unlock (&domain->alcs_lock);
+}
+
+static MonoAssemblyLoadContext *
+mono_domain_create_alc (MonoDomain *domain, gboolean is_default, gboolean collectible)
+{
+	MonoAssemblyLoadContext *alc = NULL;
+
+	mono_domain_alcs_lock (domain);
+	if (is_default && domain->default_alc)
+		goto leave;
+
+	alc = g_new0 (MonoAssemblyLoadContext, 1);
+	mono_alc_init (alc, domain, collectible);
+
+	domain->alcs = g_slist_prepend (domain->alcs, alc);
+	if (is_default)
+		domain->default_alc = alc;
+	if (collectible) {
+		mono_loader_allocator_addref (alc->loader_allocator);
+		domain->collectible_loader_allocators = g_slist_prepend (domain->collectible_loader_allocators, alc->loader_allocator);
+	}
+
+leave:
+	mono_domain_alcs_unlock (domain);
+	return alc;
+}
+
+static void
+mono_loader_allocator_init (MonoLoaderAllocator *loader_allocator, MonoAssemblyLoadContext *alc, gboolean collectible)
+{
+	MonoLoadedImages *li = g_new0 (MonoLoadedImages, 1);
+	mono_loaded_images_init (li, alc);
+
+	loader_allocator->alc = alc;
+	loader_allocator->collectible = collectible;
+	loader_allocator->ref_count = 1; // the ALC
+	loader_allocator->loaded_images = li;
+	loader_allocator->loaded_assemblies = NULL;
+	mono_coop_mutex_init (&loader_allocator->assemblies_lock);
+}
 
 void
 mono_alc_init (MonoAssemblyLoadContext *alc, MonoDomain *domain, gboolean collectible)
 {
-	MonoLoadedImages *li = g_new0 (MonoLoadedImages, 1);
-	mono_loaded_images_init (li, alc);
+	MonoLoaderAllocator *loader_allocator = g_new0 (MonoLoaderAllocator, 1);
+	mono_loader_allocator_init (loader_allocator, alc, collectible);
+
 	alc->domain = domain;
-	alc->loaded_images = li;
-	alc->loaded_assemblies = NULL;
-	alc->unloading = FALSE;
+	alc->loader_allocator = loader_allocator;
 	alc->collectible = collectible;
-	alc->pinvoke_scopes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-	mono_coop_mutex_init (&alc->assemblies_lock);
+	alc->unloading = FALSE;
 	mono_coop_mutex_init (&alc->pinvoke_lock);
+	alc->pinvoke_scopes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);	
 }
 
 void
-mono_alc_cleanup (MonoAssemblyLoadContext *alc)
+mono_domain_create_default_alc (MonoDomain *domain)
+{
+	if (domain->default_alc)
+		return;
+	mono_domain_create_alc (domain, TRUE, FALSE);
+}
+
+MonoAssemblyLoadContext *
+mono_domain_create_individual_alc (MonoDomain *domain, MonoGCHandle this_gchandle, gboolean collectible, MonoError *error)
+{
+	MonoAssemblyLoadContext *alc = mono_domain_create_alc (domain, FALSE, collectible);
+
+	if (collectible) {
+		// Create managed LoaderAllocator and LoaderAllocatorScout
+		// TODO: handle failure case
+		MonoClass *la_class = mono_class_get_loader_allocator_class ();
+		MonoManagedLoaderAllocatorHandle managed_la = MONO_HANDLE_CAST (MonoManagedLoaderAllocator, mono_object_new_handle (domain, la_class, error));
+
+		MonoClass *la_scout_class = mono_class_get_loader_allocator_scout_class ();
+		MonoManagedLoaderAllocatorScoutHandle managed_la_scout = MONO_HANDLE_CAST (MonoManagedLoaderAllocatorScout, mono_object_new_handle (domain, la_scout_class, error));
+
+		MONO_HANDLE_SET (managed_la, scout, managed_la_scout);
+		MONO_HANDLE_SETVAL (managed_la_scout, native_loader_allocator, MonoLoaderAllocator *, alc->loader_allocator);
+
+		alc->loader_allocator->gchandle = mono_gchandle_new_weakref_from_handle_track_resurrection (MONO_HANDLE_CAST (MonoObject, managed_la));
+		alc->loader_allocator_gchandle = mono_gchandle_from_handle (MONO_HANDLE_CAST (MonoObject, managed_la), FALSE);
+	}
+
+	alc->gchandle = this_gchandle;
+	return alc;
+}
+
+// LOCKING: assumes the domain alcs_lock is taken
+static void
+mono_loader_allocator_cleanup (MonoLoaderAllocator *loader_allocator)
 {
 	/*
-	 * This is still very much WIP. It needs to be split up into various other functions and adjusted to work with the 
-	 * managed LoaderAllocator design. For now, I've put it all in this function, but don't look at it too closely.
-	 * 
-	 * Of particular note: the minimum refcount on assemblies is 2: one for the domain and one for the ALC. 
+	 * The minimum refcount on assemblies is 2: one for the domain and one for the ALC. 
 	 * The domain refcount might be less than optimal on netcore, but its removal is too likely to cause issues for now.
 	 */
 	GSList *tmp;
+	MonoAssemblyLoadContext *alc = loader_allocator->alc;
 	MonoDomain *domain = alc->domain;
 
 	g_assert (alc != mono_domain_default_alc (domain));
 	g_assert (alc->collectible == TRUE);
 
-	// FIXME: alc unloading profiler event
-
 	// Remove the assemblies from domain_assemblies
 	mono_domain_assemblies_lock (domain);
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *assembly = (MonoAssembly *)tmp->data;
-		g_slist_remove (domain->domain_assemblies, assembly);
-		mono_atomic_dec_i32 (&assembly->ref_count);
+		domain->domain_assemblies = g_slist_remove (domain->domain_assemblies, assembly);
+		mono_assembly_decref (assembly);
 		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Unloading ALC [%p], removing assembly %s[%p] from domain_assemblies, ref_count=%d\n", alc, assembly->aname.name, assembly, assembly->ref_count);
 	}
 	mono_domain_assemblies_unlock (domain);
 
-	// Some equivalent to mono_gc_clear_domain? I guess in our case we just have to assert that we have no lingering references?
+	// Scan here to assert no lingering references in vtables? Seems useful but idk enough about the GC to make this happen
 
 	// Release the GC roots
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *assembly = (MonoAssembly *)tmp->data;
 		mono_assembly_release_gc_roots (assembly);
 	}
 
 	// Close dynamic assemblies
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *assembly = (MonoAssembly *)tmp->data;
 		if (!assembly->image || !image_is_dynamic (assembly->image))
 			continue;
@@ -77,7 +162,7 @@ mono_alc_cleanup (MonoAssemblyLoadContext *alc)
 	}
 
 	// Close the remaining assemblies
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *assembly = (MonoAssembly *)tmp->data;
 		if (!assembly)
 			continue;
@@ -89,37 +174,107 @@ mono_alc_cleanup (MonoAssemblyLoadContext *alc)
 	}
 
 	// Complete the second closing pass on lingering assemblies
-	for (tmp = alc->loaded_assemblies; tmp; tmp = tmp->next) {
+	for (tmp = loader_allocator->loaded_assemblies; tmp; tmp = tmp->next) {
 		MonoAssembly *assembly = (MonoAssembly *)tmp->data;
 		if (assembly)
 			mono_assembly_close_finish (assembly);
 	}
 
 	// Free the loaded_assemblies
-	g_slist_free (alc->loaded_assemblies);
-	alc->loaded_assemblies = NULL;
+	g_slist_free (loader_allocator->loaded_assemblies);
+	loader_allocator->loaded_assemblies = NULL;
 
-	// FIXME: alc unloaded profiler event
+	mono_gchandle_free_internal (loader_allocator->gchandle);
+	loader_allocator->gchandle = NULL;
 
-	g_hash_table_destroy (alc->pinvoke_scopes);
-	mono_coop_mutex_destroy (&alc->assemblies_lock);
-	mono_coop_mutex_destroy (&alc->pinvoke_lock);
+	mono_coop_mutex_destroy (&loader_allocator->assemblies_lock);
 
-	mono_loaded_images_free (alc->loaded_images);
+	mono_loaded_images_free (loader_allocator->loaded_images);
+	loader_allocator->loaded_images = NULL;
 
 	// TODO: free mempool stuff/jit info tables, see domain freeing for an example
+
+	mono_alc_free (loader_allocator->alc);
+	loader_allocator->alc = NULL;
+}
+
+static void
+mono_loader_allocator_free (MonoLoaderAllocator *loader_allocator)
+{
+	mono_loader_allocator_cleanup (loader_allocator);
+	g_free (loader_allocator);
+}
+
+// LOCKING: assumes the domain alcs_lock is taken
+void
+mono_alc_cleanup (MonoAssemblyLoadContext *alc)
+{
+	MonoDomain *domain = alc->domain;
+
+	g_assert (alc != mono_domain_default_alc (domain));
+	g_assert (alc->collectible == TRUE);
+
+	mono_gchandle_free_internal (alc->gchandle);
+
+	g_hash_table_destroy (alc->pinvoke_scopes);
+	mono_coop_mutex_destroy (&alc->pinvoke_lock);
+
+	domain->alcs = g_slist_remove (domain->alcs, alc);
+
+	// TODO: alc unloaded profiler event
+}
+
+gint32
+mono_loader_allocator_addref (MonoLoaderAllocator *loader_allocator)
+{
+	g_assert (loader_allocator->ref_count > 0);
+	return mono_atomic_inc_i32 (&loader_allocator->ref_count);
+}
+
+gint32
+mono_loader_allocator_decref (MonoLoaderAllocator *loader_allocator)
+{
+	g_assert (loader_allocator->ref_count > 0);
+	return mono_atomic_dec_i32 (&loader_allocator->ref_count);
 }
 
 void
 mono_alc_assemblies_lock (MonoAssemblyLoadContext *alc)
 {
-	mono_coop_mutex_lock (&alc->assemblies_lock);
+	mono_coop_mutex_lock (&alc->loader_allocator->assemblies_lock);
 }
 
 void
 mono_alc_assemblies_unlock (MonoAssemblyLoadContext *alc)
 {
-	mono_coop_mutex_unlock (&alc->assemblies_lock);
+	mono_coop_mutex_unlock (&alc->loader_allocator->assemblies_lock);
+}
+
+static void
+mono_alc_free (MonoAssemblyLoadContext *alc)
+{
+	mono_alc_cleanup (alc);
+	g_free (alc);
+}
+
+static void
+mono_domain_collect_loader_allocators (MonoDomain *domain)
+{
+	GSList *tmp;
+
+	mono_domain_alcs_lock (domain);
+
+	for (tmp = domain->collectible_loader_allocators; tmp; tmp = tmp->next) {
+		MonoLoaderAllocator *loader_allocator = (MonoLoaderAllocator *)tmp->data;
+		if (loader_allocator->ref_count == 0) {
+			mono_loader_allocator_free (loader_allocator);
+			tmp->data = NULL;
+		}
+	}
+
+	domain->collectible_loader_allocators = g_slist_remove_all (domain->collectible_loader_allocators, NULL);
+
+	mono_domain_alcs_unlock (domain);
 }
 
 gpointer
@@ -151,11 +306,43 @@ ves_icall_System_Runtime_Loader_AssemblyLoadContext_PrepareForAssemblyLoadContex
 
 	g_assert (alc->collectible == TRUE);
 	g_assert (alc->unloading == FALSE);
+	g_assert (alc->gchandle);
+	g_assert (alc->loader_allocator);
+	g_assert (alc->loader_allocator_gchandle);
+
 	alc->unloading = TRUE;
 
+	// Replace the weak gchandle with the new strong one to keep the managed ALC alive
 	MonoGCHandle weak_gchandle = alc->gchandle;
 	alc->gchandle = strong_gchandle;
 	mono_gchandle_free_internal (weak_gchandle);
+
+	mono_loader_allocator_decref (alc->loader_allocator);
+	//alc->loader_allocator = NULL; // We can't actually do this RN until we replace some cases of ALCs with LoaderAllocators (see the MonoLoadedImages crash), but unsure if beneficial to do so
+
+	// Destroy the strong handle to the managed LoaderAllocator to let it reach its finalizer
+	mono_gchandle_free_internal (alc->loader_allocator_gchandle);
+	alc->loader_allocator_gchandle = NULL;
+}
+
+MonoBoolean
+ves_icall_System_Reflection_LoaderAllocatorScout_Destroy (gpointer la_pointer, MonoError *error)
+{
+	MonoLoaderAllocator *loader_allocator = (MonoLoaderAllocator *)la_pointer;
+	MonoDomain *domain = loader_allocator->alc->domain;
+
+	// Check if the managed LoaderAllocator is still hanging around
+	if (!MONO_HANDLE_IS_NULL (mono_gchandle_get_target_handle (loader_allocator->gchandle)))
+		return FALSE;
+
+	// decrement refcount of all LAs referenced by this LA?
+	// decrement refcount of this LA?
+	gint32 ref_count = mono_loader_allocator_decref (loader_allocator);
+
+	if (ref_count == 0)
+		mono_domain_collect_loader_allocators (domain);
+
+	return TRUE;
 }
 
 gpointer
