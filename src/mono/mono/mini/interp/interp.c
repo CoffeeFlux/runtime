@@ -45,7 +45,6 @@
 #include <mono/metadata/tokentype.h>
 #include <mono/metadata/loader.h>
 #include <mono/metadata/threads.h>
-#include <mono/metadata/threadpool.h>
 #include <mono/metadata/profiler-private.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/reflection.h>

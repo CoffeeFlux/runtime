@@ -72,7 +72,6 @@
 #include <mono/utils/mono-state.h>
 #include <mono/utils/mono-time.h>
 #include <mono/metadata/w32handle.h>
-#include <mono/metadata/threadpool.h>
 
 #ifdef ENABLE_PERFTRACING
 #include <eventpipe/ep.h>

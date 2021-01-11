@@ -169,11 +169,7 @@ struct _MonoAssemblyName {
 	uint32_t hash_alg;
 	uint32_t hash_len;
 	uint32_t flags;
-#ifdef ENABLE_NETCORE
 	int32_t major, minor, build, revision, arch;
-#else
-	uint16_t major, minor, build, revision, arch;
-#endif
 };
 
 struct MonoTypeNameParse {
@@ -462,12 +458,10 @@ struct _MonoImage {
 	 */
 	MonoAssembly *assembly;
 
-#ifdef ENABLE_NETCORE
 	/*
 	 * The AssemblyLoadContext that this image was loaded into.
 	 */
 	MonoAssemblyLoadContext *alc;
-#endif
 
 	/*
 	 * Indexed by method tokens and typedef tokens.
@@ -569,11 +563,6 @@ struct _MonoImage {
 	/* Anon generic parameters past N, if needed */
 	MonoConcurrentHashTable *var_gparam_cache;
 	MonoConcurrentHashTable *mvar_gparam_cache;
-
-#ifndef ENABLE_NETCORE
-	/* Maps malloc-ed char* pinvoke scope -> MonoDl* */
-	GHashTable *pinvoke_scopes;
-#endif
 
 	/* The loader used to load this image */
 	MonoImageLoader *loader;
@@ -1236,11 +1225,7 @@ static inline
 MonoAssemblyLoadContext *
 mono_image_get_alc (MonoImage *image)
 {
-#ifndef ENABLE_NETCORE
-	return NULL;
-#else
 	return image->alc;
-#endif
 }
 
 static inline

@@ -2,7 +2,6 @@
 
 #include "mono/metadata/loaded-images-internals.h"
 
-#ifdef ENABLE_NETCORE
 /* Should be compiling loaded-images-netcore.c only for netcore Mono */
 
 // This is support for the mempool reference tracking feature in checked-build,
@@ -30,9 +29,3 @@ mono_alc_get_loaded_images (MonoAssemblyLoadContext *alc)
 	g_assert (alc->loaded_images);
 	return alc->loaded_images;
 }
-
-#else
-
-MONO_EMPTY_SOURCE_FILE (loaded_images_netcore);
-
-#endif /* ENABLE_NETCORE */

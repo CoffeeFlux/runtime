@@ -61,7 +61,6 @@
 #include <mono/metadata/environment.h>
 #include <mono/metadata/mono-hash-internals.h>
 #include <mono/metadata/threads-types.h>
-#include <mono/metadata/threadpool.h>
 #include <mono/metadata/assembly.h>
 #include <mono/metadata/assembly-internals.h>
 #include <mono/metadata/runtime.h>
@@ -1233,8 +1232,6 @@ socket_transport_connect (const char *address)
 			MONO_HINT_IPV6 | MONO_HINT_NUMERIC_HOST,
 			MONO_HINT_UNSPECIFIED
 		};
-
-		mono_network_init ();
 
 		for (int i = 0; i < sizeof(hints) / sizeof(int); i++) {
 			/* Obtain address(es) matching host/port */
