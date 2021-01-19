@@ -23,14 +23,6 @@
 
 G_BEGIN_DECLS
 
-/*
- * If this is set, the memory belonging to appdomains is not freed when a domain is
- * unloaded, and assemblies loaded by the appdomain are not unloaded either. This
- * allows us to use typed gc in non-default appdomains too, leading to increased
- * performance.
- */ 
-extern gboolean mono_dont_free_domains;
-
 typedef struct _MonoJitInfoTable MonoJitInfoTable;
 typedef struct _MonoJitInfoTableChunk MonoJitInfoTableChunk;
 
@@ -321,9 +313,6 @@ struct _MonoDomain {
 	MonoGHashTable     *ldstr_table;
 #define MONO_DOMAIN_LAST_GC_TRACKED ldstr_table
 	guint32            state;
-	/* Needed by Thread:GetDomainID() */
-	gint32             domain_id;
-	gint32             shadow_serial;
 	/*
 	 * For framework Mono, this is every assembly loaded in this
 	 * domain. For netcore, this is every assembly loaded in every ALC in
@@ -457,16 +446,8 @@ typedef void (*MonoCreateDomainFunc) (MonoDomain *domain);
 void
 mono_install_create_domain_hook (MonoCreateDomainFunc func);
 
-typedef void (*MonoFreeDomainFunc) (MonoDomain *domain);
-
-void
-mono_install_free_domain_hook (MonoFreeDomainFunc func);
-
 void
 mono_runtime_quit_internal (void);
-
-void 
-mono_cleanup (void);
 
 void
 mono_close_exe_image (void);
@@ -527,12 +508,6 @@ mono_domain_alloc0_lock_free (MonoDomain *domain, guint size);
 
 #define mono_domain_alloc0_lock_free(domain, size) (g_cast (mono_domain_alloc0_lock_free ((domain), (size))))
 
-void
-mono_domain_unset (void);
-
-void
-mono_domain_set_internal_with_options (MonoDomain *domain, gboolean migrate_exception);
-
 MonoTryBlockHoleTableJitInfo*
 mono_jit_info_get_try_block_hole_table_info (MonoJitInfo *ji);
 
@@ -590,17 +565,10 @@ mono_domain_assembly_postload_search (MonoAssemblyLoadContext *alc, MonoAssembly
 
 int mono_framework_version (void);
 
-void mono_assembly_cleanup_domain_bindings (guint32 domain_id);
-
 MonoJitInfo* mono_jit_info_table_find_internal (MonoDomain *domain, gpointer addr, gboolean try_aot, gboolean allow_trampolines);
-
-void mono_enable_debug_domain_unload (gboolean enable);
 
 void
 mono_runtime_init_checked (MonoDomain *domain, MonoThreadStartCB start_cb, MonoThreadAttachCB attach_cb, MonoError *error);
-
-void
-mono_context_init_checked (MonoDomain *domain, MonoError *error);
 
 gboolean
 mono_assembly_has_reference_assembly_attribute (MonoAssembly *assembly, MonoError *error);
@@ -613,9 +581,6 @@ mono_runtime_register_appctx_properties (int nprops, const char **keys,  const c
 
 void
 mono_runtime_install_appctx_properties (void);
-
-gboolean 
-mono_domain_set_fast (MonoDomain *domain, gboolean force);
 
 MonoAssemblyLoadContext *
 mono_domain_default_alc (MonoDomain *domain);

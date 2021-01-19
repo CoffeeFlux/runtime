@@ -480,7 +480,6 @@ mono_runtime_class_init_full (MonoVTable *vtable, MonoError *error)
 	}
 
 	gboolean do_initialization = FALSE;
-	MonoDomain *last_domain = NULL;
 	TypeInitializationLock *lock = NULL;
 	gboolean pending_tae = FALSE;
 
@@ -502,16 +501,6 @@ mono_runtime_class_init_full (MonoVTable *vtable, MonoError *error)
 	lock = (TypeInitializationLock *)g_hash_table_lookup (type_initialization_hash, vtable);
 	if (lock == NULL) {
 		/* This thread will get to do the initialization */
-		if (mono_domain_get () != domain) {
-			/* Transfer into the target domain */
-			last_domain = mono_domain_get ();
-			if (!mono_domain_set_fast (domain, FALSE)) {
-				vtable->initialized = 1;
-				mono_type_initialization_unlock ();
-				mono_error_set_exception_instance (error, mono_get_exception_appdomain_unloaded ());
-				goto return_false;
-			}
-		}
 		lock = (TypeInitializationLock *)g_malloc0 (sizeof (TypeInitializationLock));
 		mono_coop_mutex_init_recursive (&lock->mutex);
 		mono_coop_cond_init (&lock->cond);
@@ -603,9 +592,6 @@ mono_runtime_class_init_full (MonoVTable *vtable, MonoError *error)
 			mono_g_hash_table_insert_internal (memory_manager->type_init_exception_hash, klass, exc_to_throw);
 			mono_mem_manager_unlock (memory_manager);
 		}
-
-		if (last_domain)
-			mono_domain_set_fast (last_domain, TRUE);
 
 		/* Signal to the other threads that we are done */
 		mono_type_init_lock (lock);
@@ -1935,8 +1921,8 @@ mono_class_vtable_checked (MonoDomain *domain, MonoClass *klass, MonoError *erro
 
 	/* this check can be inlined in jitted code, too */
 	runtime_info = m_class_get_runtime_info (klass);
-	if (runtime_info && runtime_info->max_domain >= domain->domain_id && runtime_info->domain_vtables [domain->domain_id])
-		return runtime_info->domain_vtables [domain->domain_id];
+	if (runtime_info)
+		return runtime_info->domain_vtable;
 	return mono_class_create_runtime_vtable (domain, klass, error);
 }
 
@@ -1952,14 +1938,9 @@ mono_class_try_get_vtable (MonoDomain *domain, MonoClass *klass)
 {
 	MONO_REQ_GC_NEUTRAL_MODE;
 
-	MonoClassRuntimeInfo *runtime_info;
-
 	g_assert (klass);
 
-	runtime_info = m_class_get_runtime_info (klass);
-	if (runtime_info && runtime_info->max_domain >= domain->domain_id && runtime_info->domain_vtables [domain->domain_id])
-		return runtime_info->domain_vtables [domain->domain_id];
-	return NULL;
+	return m_class_get_runtime_info (klass)->domain_vtable;
 }
 
 static gpointer*
@@ -2010,10 +1991,10 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	mono_domain_lock (domain);
 
 	runtime_info = m_class_get_runtime_info (klass);
-	if (runtime_info && runtime_info->max_domain >= domain->domain_id && runtime_info->domain_vtables [domain->domain_id]) {
+	if (runtime_info) {
 		mono_domain_unlock (domain);
 		mono_loader_unlock ();
-		vt = runtime_info->domain_vtables [domain->domain_id];
+		vt = runtime_info->domain_vtable;
 		goto exit;
 	}
 	if (!m_class_is_inited (klass) || mono_class_has_failure (klass)) {
@@ -2111,23 +2092,7 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	MONO_PROFILER_RAISE (vtable_loading, (vt));
 
 	mono_class_compute_gc_descriptor (klass);
-	/*
-	 * For Boehm:
-	 * We can't use typed allocation in the non-root domains, since the
-	 * collector needs the GC descriptor stored in the vtable even after
-	 * the mempool containing the vtable is destroyed when the domain is
-	 * unloaded. An alternative might be to allocate vtables in the GC
-	 * heap, but this does not seem to work (it leads to crashes inside
-	 * libgc). If that approach is tried, two gc descriptors need to be
-	 * allocated for each class: one for the root domain, and one for all
-	 * other domains. The second descriptor should contain a bit for the
-	 * vtable field in MonoObject, since we can no longer assume the
-	 * vtable is reachable by other roots after the appdomain is unloaded.
-	 */
-	if (!mono_gc_is_moving () && domain != mono_get_root_domain () && !mono_dont_free_domains)
-		vt->gc_descr = MONO_GC_DESCRIPTOR_NULL;
-	else
-		vt->gc_descr = m_class_get_gc_descr (klass);
+	vt->gc_descr = m_class_get_gc_descr (klass);
 
 	gc_bits = mono_gc_get_vtable_bits (klass);
 	g_assert (!(gc_bits & ~((1 << MONO_VTABLE_AVAILABLE_GC_BITS) - 1)));
@@ -2296,7 +2261,7 @@ mono_class_create_runtime_vtable (MonoDomain *domain, MonoClass *klass, MonoErro
 	 */
 	mono_memory_barrier ();
 
-	mono_class_setup_runtime_info  (klass, domain, vt);
+	mono_class_setup_runtime_info (klass, vt);
 
 	if (klass == mono_defaults.runtimetype_class) {
 		MonoReflectionTypeHandle vt_type = mono_type_get_object_handle (domain, m_class_get_byval_arg (klass), error);
@@ -4819,51 +4784,6 @@ return_null:
 }
 #endif /* DISABLE_REMOTING */
 
-/**
- * mono_object_xdomain_representation
- * \param obj an object
- * \param target_domain a domain
- * \param error set on error.
- * Creates a representation of obj in the domain \p target_domain.  This
- * is either a copy of \p obj arrived through via serialization and
- * deserialization or a proxy, depending on whether the object is
- * serializable or marshal by ref.  \p obj must not be in \p target_domain.
- * If the object cannot be represented in \p target_domain, NULL is
- * returned and \p error is set appropriately.
- */
-MonoObjectHandle
-mono_object_xdomain_representation (MonoObjectHandle obj, MonoDomain *target_domain, MonoError *error)
-{
-	HANDLE_FUNCTION_ENTER ();
-
-	MONO_REQ_GC_UNSAFE_MODE;
-
-	MonoObjectHandle deserialized;
-
-#ifndef DISABLE_REMOTING
-	if (mono_class_is_marshalbyref (mono_handle_class (obj))) {
-		deserialized = make_transparent_proxy (obj, error);
-	} 
-	else
-#endif
-	{
-		MonoDomain *domain = mono_domain_get ();
-
-		mono_domain_set_internal_with_options (MONO_HANDLE_DOMAIN (obj), FALSE);
-		MonoObjectHandle serialized = serialize_object (obj, error);
-		mono_domain_set_internal_with_options (target_domain, FALSE);
-		if (is_ok (error))
-			deserialized = deserialize_object (serialized, error);
-		else
-			deserialized = mono_new_null ();
-
-		if (domain != target_domain)
-			mono_domain_set_internal_with_options (domain, FALSE);
-	}
-
-	HANDLE_FUNCTION_RETURN_REF (MonoObject, deserialized);
-}
-
 /* Used in call_unhandled_exception_delegate */
 static MonoObjectHandle
 create_unhandled_exception_eventargs (MonoObjectHandle exc, MonoError *error)
@@ -4905,27 +4825,9 @@ call_unhandled_exception_delegate (MonoDomain *domain, MonoObjectHandle delegate
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	ERROR_DECL (error);
-	MonoDomain *current_domain = mono_domain_get ();
-
-	if (domain != current_domain)
-		mono_domain_set_internal_with_options (domain, FALSE);
 
 	g_assert (domain == mono_object_domain (domain->domain));
 
-	if (MONO_HANDLE_DOMAIN (exc) != domain) {
-
-		exc = mono_object_xdomain_representation (exc, domain, error);
-		if (MONO_HANDLE_IS_NULL (exc)) {
-			ERROR_DECL (inner_error);
-			if (!is_ok (error)) {
-				MonoExceptionHandle serialization_exc = mono_error_convert_to_exception_handle (error);
-				exc = mono_object_xdomain_representation (MONO_HANDLE_CAST (MonoObject, serialization_exc), domain, inner_error);
-			} else {
-				exc = MONO_HANDLE_CAST (MonoObject, mono_exception_new_serialization ("Could not serialize unhandled exception.", inner_error));
-			}
-			mono_error_assert_ok (inner_error);
-		}
-	}
 	g_assert (MONO_HANDLE_DOMAIN (exc) == domain);
 
 	gpointer pa [ ] = {
@@ -4934,9 +4836,6 @@ call_unhandled_exception_delegate (MonoDomain *domain, MonoObjectHandle delegate
 	};
 	mono_error_assert_ok (error);
 	mono_runtime_delegate_try_invoke_handle (delegate, pa, error);
-
-	if (domain != current_domain)
-		mono_domain_set_internal_with_options (current_domain, FALSE);
 
 	if (!is_ok (error)) {
 		g_warning ("exception inside UnhandledException handler: %s\n", mono_error_get_message (error));

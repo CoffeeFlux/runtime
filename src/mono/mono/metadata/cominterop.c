@@ -1999,12 +1999,7 @@ cominterop_set_ccw_object_domain (MonoObject *object, MonoDomain **prev_domain)
 	else
 		obj_domain = mono_object_domain (object);
 
-	if (obj_domain != current) {
-		*prev_domain = current;
-		mono_domain_set_internal_with_options (obj_domain, FALSE);
-	}
-	else
-		*prev_domain = NULL;
+	*prev_domain = NULL;
 
 	return object;
 }
@@ -2014,8 +2009,6 @@ cominterop_restore_domain (MonoDomain *domain)
 {
 	if (!domain)
 		return;
-
-	mono_domain_set_internal_with_options (domain, FALSE);
 }
 
 static void

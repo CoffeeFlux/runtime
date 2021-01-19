@@ -4794,30 +4794,6 @@ mono_assemblies_cleanup (void)
 	free_assembly_preload_hooks ();
 }
 
-/*LOCKING takes the assembly_binding lock*/
-void
-mono_assembly_cleanup_domain_bindings (guint32 domain_id)
-{
-	GSList **iter;
-
-	mono_assembly_binding_lock ();
-	iter = &loaded_assembly_bindings;
-	while (*iter) {
-		GSList *l = *iter;
-		MonoAssemblyBindingInfo *info = (MonoAssemblyBindingInfo *)l->data;
-
-		if (info->domain_id == domain_id) {
-			*iter = l->next;
-			mono_assembly_binding_info_free (info);
-			g_free (info);
-			g_slist_free_1 (l);
-		} else {
-			iter = &l->next;
-		}
-	}
-	mono_assembly_binding_unlock ();
-}
-
 /*
  * Holds the assembly of the application, for
  * System.Diagnostics.Process::MainModule

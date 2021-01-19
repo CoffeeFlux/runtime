@@ -11651,17 +11651,7 @@ mono_ldptr:
 		cfg->cbb->next_bb = end_bblock;
 	}
 
-	if (cfg->method == method && cfg->domainvar) {
-		MonoInst *store;
-		MonoInst *get_domain;
-
-		cfg->cbb = init_localsbb;
-
-		get_domain = mono_create_tls_get (cfg, TLS_KEY_DOMAIN);
-		NEW_TEMPSTORE (cfg, store, cfg->domainvar->inst_c0, get_domain);
-		MONO_ADD_INS (cfg->cbb, store);
-		cfg->domainvar_inited = TRUE;
-	}
+	// I'll be honest, I'm not clear what's going on here, should probably revisit before PRing this
 
 #if defined(TARGET_POWERPC) || defined(TARGET_X86)
 	if (cfg->compile_aot)
