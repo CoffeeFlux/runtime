@@ -371,6 +371,8 @@ extern int valgrind_register;
 
 /* instruction description for use in regalloc/scheduling */
 
+#define MONO_MAX_SRC_REGS 3
+
 enum {
 	MONO_INST_DEST = 0,
 	MONO_INST_SRC1 = 1,             /* we depend on the SRCs to be consecutive */
@@ -402,7 +404,7 @@ typedef union MonoInstSpec { // instruction specification
 	};
 	struct {
 		char xdest;
-		char src [3];
+		char src [MONO_MAX_SRC_REGS];
 		unsigned char xlen;
 		char xclob;
 	};

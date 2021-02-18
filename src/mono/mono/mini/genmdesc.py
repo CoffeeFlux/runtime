@@ -31,6 +31,11 @@ allowed_defines = { "TARGET_X86" : 1,
                     "TARGET_RISCV64" : 1,
                     "TARGET_WASM" : 1
                     }
+
+mini_op_patterns = [
+    re.compile (r"MINI_OP\(\w+\s*\,\s*\"([^\"]+)\", (\w+), (\w+), (\w+)\)"),
+    re.compile (r"MINI_OP3\(\w+\s*\,\s*\"([^\"]+)\", (\w+), (\w+), (\w+), (\w+)\)"),
+]
                     
 class OpDef:
     def __init__ (self, num, name, dest_def, src1_def, src2_def):
@@ -42,7 +47,7 @@ class OpDef:
         self.src2_def = src2_def
         self.used = False
         # Data read from the cpu descriptor file
-        self.spec = ["", "", "", "", "", "", "", "", "", ""]
+        self.spec = ["" for x in range (10)]
         self.desc_idx = 0
         
 def usage ():
@@ -83,22 +88,21 @@ def parse_mini_ops (target_define):
             is_enabled = True
         else:
             if is_enabled and line.startswith ("MINI_OP"):
-                m = re.search (r"MINI_OP\(\w+\s*\,\s*\"([^\"]+)\", (\w+), (\w+), (\w+)\)", line)
-                if m != None:
-                    opcodes [m.group (1)] = OpDef(opcode_id, m.group (1), m.group (2), m.group (3), m.group (4))
-                else:
-                    m = re.search (r"MINI_OP3\(\w+\s*\,\s*\"([^\"]+)\", (\w+), (\w+), (\w+), (\w+)\)", line)
-                    if m != None:
-                        opcodes [m.group (1)] = OpDef(opcode_id, m.group (1), m.group (2), m.group (3), m.group (4))
-                    else:
-                        print ("Unable to parse line: '{0}'".format (line))
-                        exit (1)
+                for pattern in mini_op_patterns:
+                    m = re.search (pattern, line)
+                    if m: break
+
+                if not m:
+                    print ("Unable to parse line: '{0}'".format (line))
+                    exit (1)
+
+                opcodes [m.group (1)] = OpDef (opcode_id, m.group (1), m.group (2), m.group (3), m.group (4))
                 opcode_id += 1
+
     opcode_file.close ()
     return opcodes
 
 def parse_input(infile, opcodes):
-
     # Comments are pound sign to end of string.
     remove_comments = re.compile ("#.*")
 
