@@ -8188,6 +8188,8 @@ parse_cpu_features (const gchar *attr)
 		feature = MONO_CPU_ARM64_CRC;
 	else if (!strcmp (attr + prefix, "simd"))
 		feature = MONO_CPU_ARM64_ADVSIMD;
+	else if (!strcmp (attr + prefix, "dotprod"))
+		feature = MONO_CPU_ARM64_DP;
 #elif defined(TARGET_WASM)
 	if (!strcmp (attr + prefix, "simd"))
 		feature = MONO_CPU_WASM_SIMD;

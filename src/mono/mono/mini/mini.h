@@ -2857,6 +2857,7 @@ typedef enum {
 	MONO_CPU_ARM64_CRC    = 1 << 2,
 	MONO_CPU_ARM64_CRYPTO = 1 << 3,
 	MONO_CPU_ARM64_ADVSIMD = 1 << 4,
+	MONO_CPU_ARM64_DP     = 1 << 5,
 #endif
 } MonoCPUFeatures;
 
@@ -2989,7 +2990,9 @@ typedef enum {
 	SIMD_OP_ARM64_SHA256H,
 	SIMD_OP_ARM64_SHA256H2,
 	SIMD_OP_ARM64_SHA256SU0,
-	SIMD_OP_ARM64_SHA256SU1
+	SIMD_OP_ARM64_SHA256SU1,
+	SIMD_OP_ARM64_UDOT,
+	SIMD_OP_ARM64_SDOT,
 } SimdOp;
 
 const char *mono_arch_xregname (int reg);

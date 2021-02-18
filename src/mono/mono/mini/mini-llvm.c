@@ -9087,6 +9087,8 @@ process_bb (EmitContext *ctx, MonoBasicBlock *bb)
 			case SIMD_OP_ARM64_SHA256H: id = INTRINS_AARCH64_SHA256H; break;
 			case SIMD_OP_ARM64_SHA256H2: id = INTRINS_AARCH64_SHA256H2; break;
 			case SIMD_OP_ARM64_SHA256SU1: id = INTRINS_AARCH64_SHA256SU1; break;
+			case SIMD_OP_ARM64_UDOT: id = INTRINS_AARCH64_UDOT_V128; break;
+			case SIMD_OP_ARM64_SDOT: id = INTRINS_AARCH64_SDOT_V128; break;
 			default: g_assert_not_reached (); break;
 			}
 			LLVMValueRef args [] = { lhs, rhs, arg3 };
@@ -9149,6 +9151,22 @@ process_bb (EmitContext *ctx, MonoBasicBlock *bb)
 				LLVMConstInt (LLVMInt128Type (), 64, FALSE), "");
 			values [ins->dreg] = LLVMBuildTrunc (builder, hi64, LLVMInt64Type (), "");
 			break;
+		}
+		case OP_ARM64_UDOT:
+		case OP_ARM64_SDOT: {
+			LLVMValueRef intrins = get_intrins (ctx, OP_ARM_UDOT ? INTRINS_AARCH64_UDOT : INTRINS_AARCH64_SDOT);
+			int nargs = LLVMCountParamTypes (LLVMGetElementType (LLVMTypeOf (intrins)));
+
+			for (int i = 0; i < nargs; ++i) {
+				LLVMTypeRef t1 = LLVMTypeOf (args [i]);
+				LLVMTypeRef t2 = LLVMTypeOf (LLVMGetParam (intrins, i));
+				if (t1 != t2)
+					args [i] = convert (ctx, args [i], t2);
+			}
+
+			return LLVMBuildCall (ctx->builder, intrins, args, nargs, name);
+			LLVMValueRef op1, op2;
+
 		}
 #endif
 
@@ -11860,7 +11878,8 @@ MonoCPUFeatures mono_llvm_get_cpu_features (void)
 #if defined(TARGET_ARM64)
 		{ "crc",	MONO_CPU_ARM64_CRC },
 		{ "crypto",	MONO_CPU_ARM64_CRYPTO },
-		{ "neon",	MONO_CPU_ARM64_ADVSIMD }
+		{ "neon",	MONO_CPU_ARM64_ADVSIMD },
+		{ "dotprod", MONO_CPU_ARM64_DP }
 #endif
 #if defined(TARGET_WASM)
 		{ "simd",	MONO_CPU_WASM_SIMD },

@@ -209,7 +209,7 @@ emit_simd_ins_for_sig (MonoCompile *cfg, MonoClass *klass, int opcode, int instc
 		ins->inst_c0 = instc0;
 	if (instc1 != -1)
 		ins->inst_c1 = instc1;
-	if (fsig->param_count == 3)
+	if (fsig->param_count >= 3)
 		ins->sreg3 = args [2]->dreg;
 	return ins;
 }
@@ -863,6 +863,12 @@ static SimdIntrinsic advsimd_methods [] = {
 	{SN_Abs}
 };
 
+static SimdIntrinsic dp_methods [] = {
+	{SN_DotProduct},
+	{SN_DotProductBySelectedQuadruplet},
+	{SN_get_IsSupported}
+}
+
 static MonoInst*
 emit_arm64_intrinsics (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSignature *fsig, MonoInst **args)
 {
@@ -938,6 +944,40 @@ emit_arm64_intrinsics (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSignatur
 		}
 		default:
 			g_assert_not_reached (); // if a new API is added we need to either implement it or change IsSupported to false
+		}
+	}
+
+	if (is_hw_intrinsics_class (klass, "Dp", &is_64bit)) {
+		info = lookup_intrins_info (dp_methods, sizeof (dp_methods), cmethod);
+		if (!info)
+			return NULL;
+
+		supported = (mini_get_cpu_features (cfg) & MONO_CPU_ARM64_DP) != 0;
+
+		switch (info->id) {
+		case SN_get_IsSupported:
+			EMIT_NEW_ICONST (cfg, ins, supported ? 1 : 0);
+			ins->type = STACK_I4;
+			return ins;
+
+		case SN_DotProduct:
+		case SN_DotProductBySelectedQuadruplet: {
+			SimdOp op = (SimdOp)0;
+			gboolean is_quad = info->id == SN_DotProductBySelectedQuadruplet;
+
+			switch (get_underlying_type (fsig->params [1])) {
+			case MONO_TYPE_U1: op = SIMD_OP_ARM64_UDOT; break;
+			case MONO_TYPE_I1: op = SIMD_OP_ARM64_SDOT; break;
+			default: g_assert_not_reached (); break;
+			}
+
+			if (is_quad && args [3]->opcode != OP_ICONST)
+				return emit_invalid_operation (cfg, "index in Dp.DotProductBySelectedQuadruplet must be constant");
+
+			return emit_simd_ins_for_sig (cfg, klass, OP_XOP_X_X_X_X, op, arg0_type, fsig, args); // this will not work
+		}
+		default:
+			g_assert_not_reached ();
 		}
 	}
 

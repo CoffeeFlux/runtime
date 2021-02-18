@@ -246,3 +246,6 @@ METHOD(HashUpdate2)
 METHOD(ScheduleUpdate0)
 METHOD(ScheduleUpdate1)
 METHOD(MixColumns)
+// Dp
+// METHOD(DotProduct) // already defined for SSE4.1
+METHOD(DotProductBySelectedQuadruplet)
