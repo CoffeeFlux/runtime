@@ -613,13 +613,12 @@ mono_domain_owns_vtable_slot (MonoDomain *domain, gpointer vtable_slot)
 	return res;
 }
 
-gboolean
-mono_domain_set_fast (MonoDomain *domain, gboolean force)
+void
+mono_domain_set_fast (MonoDomain *domain)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	mono_domain_set_internal_with_options (domain, TRUE);
-	return TRUE;
 }
 
 static gboolean

@@ -3882,13 +3882,13 @@ send_types_for_domain (MonoDomain *domain, void *user_data)
 
 	old_domain = mono_domain_get ();
 
-	mono_domain_set_fast (domain, TRUE);
+	mono_domain_set_fast (domain);
 	
 	mono_loader_lock ();
 	g_hash_table_foreach (info->loaded_classes, emit_type_load, NULL);
 	mono_loader_unlock ();
 
-	mono_domain_set_fast (old_domain, TRUE);
+	mono_domain_set_fast (old_domain);
 }
 
 static void
@@ -3899,7 +3899,7 @@ send_assemblies_for_domain (MonoDomain *domain, void *user_data)
 
 	old_domain = mono_domain_get ();
 
-	mono_domain_set_fast (domain, TRUE);
+	mono_domain_set_fast (domain);
 
 	mono_domain_assemblies_lock (domain);
 	for (tmp = domain->domain_assemblies; tmp; tmp = tmp->next) {
@@ -3908,7 +3908,7 @@ send_assemblies_for_domain (MonoDomain *domain, void *user_data)
 	}
 	mono_domain_assemblies_unlock (domain);
 
-	mono_domain_set_fast (old_domain, TRUE);
+	mono_domain_set_fast (old_domain);
 }
 
 static void
@@ -7359,13 +7359,12 @@ assembly_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 		gboolean ignorecase = decode_byte (p, &p, end);
 		MonoTypeNameParse info;
 		MonoType *t;
-		gboolean type_resolve, res;
+		gboolean type_resolve;
 		MonoDomain *d = mono_domain_get ();
 		MonoAssemblyLoadContext *alc = mono_alc_get_default ();
 
 		/* This is needed to be able to find referenced assemblies */
-		res = mono_domain_set_fast (domain, FALSE);
-		g_assert (res);
+		mono_domain_set_fast (domain);
 
 		if (!mono_reflection_parse_type_checked (s, &info, error)) {
 			mono_error_cleanup (error);
@@ -7374,7 +7373,7 @@ assembly_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 			if (info.assembly.name) {
 				mono_reflection_free_type_info (&info);
 				g_free (s);
-				mono_domain_set_fast (d, TRUE);
+				mono_domain_set_fast (d);
 				char* error_msg =  g_strdup_printf ("Unexpected assembly-qualified type %s was provided", original_s);
 				add_error_string (buf, error_msg);
 				g_free (error_msg);
@@ -7386,7 +7385,7 @@ assembly_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 				mono_error_cleanup (error); /* FIXME don't swallow the error */
 				mono_reflection_free_type_info (&info);
 				g_free (s);
-				mono_domain_set_fast (d, TRUE);
+				mono_domain_set_fast (d);
 				char* error_msg =  g_strdup_printf ("Invalid type name %s", original_s);
 				add_error_string (buf, error_msg);
 				g_free (error_msg);
@@ -7398,7 +7397,7 @@ assembly_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 		mono_reflection_free_type_info (&info);
 		g_free (s);
 		g_free (original_s);
-		mono_domain_set_fast (d, TRUE);
+		mono_domain_set_fast (d);
 
 		break;
 	}
@@ -8146,11 +8145,11 @@ type_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 
 	old_domain = mono_domain_get ();
 
-	mono_domain_set_fast (domain, TRUE);
+	mono_domain_set_fast (domain);
 
 	err = type_commands_internal (command, klass, domain, p, end, buf);
 
-	mono_domain_set_fast (old_domain, TRUE);
+	mono_domain_set_fast (old_domain);
 
 	return err;
 }
@@ -8621,11 +8620,11 @@ method_commands (int command, guint8 *p, guint8 *end, Buffer *buf)
 
 	old_domain = mono_domain_get ();
 
-	mono_domain_set_fast (domain, TRUE);
+	mono_domain_set_fast (domain);
 
 	err = method_commands_internal (command, method, domain, p, end, buf);
 
-	mono_domain_set_fast (old_domain, TRUE);
+	mono_domain_set_fast (old_domain);
 
 	return err;
 }

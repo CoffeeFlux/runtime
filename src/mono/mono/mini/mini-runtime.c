@@ -848,7 +848,6 @@ mono_pop_lmf (MonoLMF *lmf)
 MonoDomain*
 mono_jit_thread_attach (MonoDomain *domain)
 {
-	MonoDomain *orig;
 	gboolean attached;
 
 	if (!domain) {
@@ -875,11 +874,7 @@ mono_jit_thread_attach (MonoDomain *domain)
 		mono_threads_enter_gc_safe_region_unbalanced_internal (&stackdata);
 	}
 
-	orig = mono_domain_get ();
-	if (orig != domain)
-		mono_domain_set_fast (domain, TRUE);
-
-	return orig != domain ? orig : NULL;
+	return NULL;
 }
 
 /*
@@ -893,7 +888,7 @@ mono_jit_set_domain (MonoDomain *domain)
 	g_assert (!mono_threads_is_blocking_transition_enabled ());
 
 	if (domain)
-		mono_domain_set_fast (domain, TRUE);
+		mono_domain_set_fast (domain);
 }
 
 /**

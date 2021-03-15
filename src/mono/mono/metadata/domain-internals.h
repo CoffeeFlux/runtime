@@ -452,8 +452,8 @@ mono_runtime_register_appctx_properties (int nprops, const char **keys,  const c
 void
 mono_runtime_install_appctx_properties (void);
 
-gboolean 
-mono_domain_set_fast (MonoDomain *domain, gboolean force);
+void 
+mono_domain_set_fast (MonoDomain *domain);
 
 static inline MonoMemoryManager *
 mono_domain_memory_manager (MonoDomain *domain)

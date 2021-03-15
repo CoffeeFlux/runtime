@@ -835,22 +835,13 @@ mono_domain_assembly_open (MonoDomain *domain, const char *name)
 MonoAssembly *
 mono_domain_assembly_open_internal (MonoDomain *domain, MonoAssemblyLoadContext *alc, const char *name)
 {
-	MonoDomain *current;
 	MonoAssembly *ass;
 
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	MonoAssemblyOpenRequest req;
 	mono_assembly_request_prepare_open (&req, MONO_ASMCTX_DEFAULT, alc);
-	if (domain != mono_domain_get ()) {
-		current = mono_domain_get ();
-
-		mono_domain_set_fast (domain, FALSE);
-		ass = mono_assembly_request_open (name, &req, NULL);
-		mono_domain_set_fast (current, FALSE);
-	} else {
-		ass = mono_assembly_request_open (name, &req, NULL);
-	}
+	ass = mono_assembly_request_open (name, &req, NULL);
 
 	// On netcore, this is necessary because we check the AppContext.BaseDirectory property as part of the assembly lookup algorithm
 	// AppContext.BaseDirectory can sometimes fall back to checking the location of the entry_assembly, which should be non-null
