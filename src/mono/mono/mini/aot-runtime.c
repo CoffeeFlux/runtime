@@ -2354,12 +2354,6 @@ mono_aot_init (void)
 	}
 }
 
-void
-mono_aot_cleanup (void)
-{
-	g_hash_table_destroy (aot_modules);
-}
-
 /*
  * load_container_amodule:
  *
@@ -6200,11 +6194,6 @@ mono_aot_get_method_flags (guint8 *code)
 
 void
 mono_aot_init (void)
-{
-}
-
-void
-mono_aot_cleanup (void)
 {
 }
 

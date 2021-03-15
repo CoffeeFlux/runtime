@@ -331,9 +331,6 @@ mono_runtime_load (const char *filename, const char *runtime_version);
 void
 mono_runtime_quit_internal (void);
 
-void 
-mono_cleanup (void);
-
 void
 mono_close_exe_image (void);
 
